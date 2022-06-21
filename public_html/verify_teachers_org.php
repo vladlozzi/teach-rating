@@ -1,0 +1,144 @@
+<?php
+if(!defined("IN_ADMIN")) die;
+// echo "test_depart OK";
+// require "chekers.php";
+$questions = array(); // назви рейтингових показників
+$normbals = array(); // нормативні бали рейтингових показників
+$Question_query = "SELECT * FROM question ORDER BY id";
+$Question_result = mysqli_query($conn, $Question_query) or 
+	die("Помилка сервера при запиті $Question_query : ".mysqli_error($conn));
+while ($Question_row = mysqli_fetch_array($Question_result)) {
+	$questions[$Question_row['id']] = $Question_row['name']; 
+	$normbals[$Question_row['id']] = $Question_row['maxDigit'];
+}
+
+$faculty_id = $_SESSION['user_description']; // $page .= " ".$faculty_id;
+$page .= "<br>Підтвердіть рейтингові показники викладачів інституту. 
+	&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;  &nbsp; &nbsp; &nbsp; 
+	<input type=\"button\" name=\"refresh\" value=\"Оновити\" 
+	onclick=\"history.go(0)\">
+	<br>Кількість викладачів, які надіслали запити на підтвердження: ";
+
+$TeachersCount_query = "SELECT COUNT(DISTINCT(a.matrixId)) AS t_cnt 
+	FROM teachResult a, teachMatrixNames b, question c 
+	WHERE a.verifying_status_id = 2 and a.tester_id = 32 and 
+	b.id = a.matrixId and c.magicField = '' and c.id = a.questionId and 
+	b.departmentId IN 
+	(SELECT id FROM cDepartment WHERE fakultet_id = $faculty_id)";
+$TeachersCount_result = mysqli_query($conn, $TeachersCount_query) or 
+	die("Помилка сервера при запиті $TeachersCount_query : ".mysqli_error($conn));
+$TeachersCount_row = mysqli_fetch_array($TeachersCount_result);
+$page .= bold($TeachersCount_row['t_cnt'])."<br>";
+if ($TeachersCount_row['t_cnt'] == 0) return;
+
+$tr = "<tr><td style=\"text-align: right;\">Виберіть викладача:</td>";
+$MatrixSelect_query =  "
+	SELECT DISTINCT a.matrixId, CONCAT(b.name,\" - \",b.nazva_kaf) as teacher 
+	FROM teachResult a, teachMatrixNames b, question c 
+	WHERE b.id = a.matrixId and 
+		c.magicField = '' and c.id = a.questionId and 
+		a.verifying_status_id = 2 and a.tester_id = 32 and 
+		b.departmentId IN (SELECT id FROM cDepartment WHERE fakultet_id = $faculty_id) 
+	ORDER BY b.nazva_kaf, b.name";
+/* $page .= bold($MatrixSelect_query)."<br>";
+$MatrixSelect_result = mysqli_query($conn, $MatrixSelect_query) or 
+			    die("Помилка сервера при запиті $MatrixSelect_query");
+while ($MatrixSelect_row = mysqli_fetch_array($MatrixSelect_result))
+	$page .= $MatrixSelect_row['matrixId'].": ".$MatrixSelect_row['teacher']."<br>";
+*/
+$tmmatrixId = (isset($_POST['teacher'])) ? $_POST['teacher'] : "";
+
+$tr .= "<td>".selectCommonChecker("teacher", $MatrixSelect_query, 
+	"matrixId", $tmmatrixId, "teacher")."</td></tr>";
+$page .= tableWrapper($tr);
+
+if (!empty($_POST['teacher'])) { // викладача вибрано
+// $page .= $_POST['teacher']; 
+	$Tester_query =  "SELECT *	FROM teachResult a 
+		WHERE a.tester_id = 32 and a.matrixId = '".$_POST['teacher']."' 
+		ORDER BY a.questionId";
+
+// $page .= bold($Tester_query)."<br>";
+	$Tester_result = mysqli_query($conn, $Tester_query) or 
+		die("Помилка сервера при запиті $Tester_query : ".mysqli_error($conn));
+	$question_ids = array(); $iq = 0;
+	while ($Tester_row = mysqli_fetch_array($Tester_result)) {
+		$qi = ($normbals[$Tester_row['questionId']] != 0) ? $Tester_row['questionId'] : "";
+		$question_ids[$iq] = $qi; $iq++;
+	}
+	if (!empty($_POST['save'])) { // var_dump($question_ids);
+		foreach ($question_ids as $qi) {
+			if (!empty($qi) and !empty($_POST['radioCDC'.$qi])) {
+				$update_tR_query = "update teachResult 
+					set verifying_status_id = \"".$_POST['radioCDC'.$qi]."\", 
+							comment = \"".$_POST['txa'.$qi]."\" 
+					where tester_id = 32 and 
+					matrixId = ".$_POST['teacher']." and 
+					questionId = $qi";
+				// echo "<br>".$update_tR_query;
+				$update_tR_result = mysqli_query($conn, $update_tR_query) or 
+					die("Помилка сервера при запиті $update_tR_query : ".mysqli_error($conn));
+			}
+		}
+	}
+	$th = "<tr><th>ID</th><th>Рейтинговий показник</th><th>Норматив,<br>бали</th>
+		<th style=\"font-size: 90%\">Бали,&nbsp;введені викладачем, та&nbsp;їх&nbsp;пояснення</th>
+		<th style=\"width: 120px;\">Рішення</th><th>Чому відхилили</th></tr>";
+// $Tester_query =  "SELECT *	FROM teachResult a 
+//	WHERE a.tester_id = $user_id and a.matrixId = '".$_POST['teacher'].
+//	"' ORDER BY a.questionId";
+//	$page .= bold($Tester_query)."<br>";
+	$Tester_result1 = mysqli_query($conn, $Tester_query) or 
+		die("Помилка сервера при запиті $Tester_query : ".mysqli_error($conn));
+	$tr = ""; // $question_ids = array(); $iq = 0;
+	while ($Tester_row = mysqli_fetch_array($Tester_result1)) {
+		// Друкуємо бали (норм. і набраний), якщо нормативний не пустий
+		$qi = ($normbals[$Tester_row['questionId']] != "") ? $Tester_row['questionId'] : "";
+		$qb = ($normbals[$Tester_row['questionId']] == "") ? 
+			"style=\"font-weight: 600;\"" : "style=\"font-weight: normal;\"";
+		$nb = ($normbals[$Tester_row['questionId']] != "") ? 
+			$normbals[$Tester_row['questionId']] : "";
+		$gb = ($normbals[$Tester_row['questionId']] != "") ? $Tester_row['digit'] : "";
+		$se3 = (($normbals[$Tester_row['questionId']] != "") and 
+			($Tester_row['verifying_status_id'] == 3)) ? "checked" : "";
+		$se4 = (($normbals[$Tester_row['questionId']] != "") and 
+			($Tester_row['verifying_status_id'] == 4)) ? "checked" : "";
+		$se0 = (($normbals[$Tester_row['questionId']] != "") and 
+			($Tester_row['verifying_status_id'] < 3)) ? "checked" : "";
+		$rb = "<input type=\"radio\" name=\"radioCDC".$Tester_row['questionId']."\" 
+			value=\"3\" $se3 /> Підтвердити<br>
+			<input type=\"radio\" name=\"radioCDC".$Tester_row['questionId']."\" 
+			value=\"4\" $se4 /> Відхилити<br>
+			<input type=\"radio\" name=\"radioCDC".$Tester_row['questionId']."\" 
+			value=\"0\" $se0 /> <span style=\"font-weight: normal; display: inline\">Відкласти</span>";
+		$teacherComment = /* "<input type=\"checkbox\" 
+			id=\"сbx".$Tester_row['id']."\" 
+			name=\"сbx".$Tester_row['id']."\" class=\"del\" />
+			<label for=\"сbx".$Tester_row['id']."\" class=\"del\">
+			<span style=\"font-weight: normal; font-size: 75%; display: inline;\">Змінити</span></label>" */
+			"<details><summary>Розшифрування</summary>".$Tester_row['teacherComment']."</details>";
+		$ch = (($normbals[$Tester_row['questionId']] != "") and 
+			(($normbals[$Tester_row['questionId']] > 0) and ($gb > 0) 
+			or ($normbals[$Tester_row['questionId']] < 0) and ($gb <= 0)) 
+		) ? "<br>".$teacherComment : "";
+		$rb = (($normbals[$Tester_row['questionId']] != "") and 
+			(($normbals[$Tester_row['questionId']] > 0) and ($gb > 0) 
+			or ($normbals[$Tester_row['questionId']] < 0) and ($gb <= 0)) 
+		) ? $rb : "";
+		// Стиль для підтверджених балів
+		$gb_style = ($se3 == "checked") ? 
+			"background-color: lime; font-weight: bold;" : "";
+		$tr .= "<tr> <td style=\"text-align: center;\">".$qi.
+			"</td><td><span $qb>".$questions[$Tester_row['questionId']]."</span>".
+			"</td><td style=\"text-align: center;\">".$nb.
+			"</td><td style=\"text-align: center; $gb_style \">".$gb.$ch.
+			"</td><td style=\"text-align: left;\">".$rb.
+			"</td><td>".((!empty($rb)) ? 
+			"<textarea rows=3 name=\"txa".$Tester_row['questionId']."\" >".$Tester_row['comment']."</textarea>" : "").
+			"</td></tr>";
+// $question_ids[$iq] = $qi; $iq++;
+	}
+	$tb = ($editMode) ? "<tr> <th colspan=5></th>
+		<th><input type=\"submit\" name=\"save\" value=\"Зберегти\"></th> </tr>" : "";
+	$page .= tableWrapper($th.$tr.$tb); // var_dump($question_ids);
+}

@@ -1,0 +1,4 @@
+Order deny,allow
+allow from all
+# php_value session.gc_maxlifetime "7200"
+# php_value session.save_path "./sessions"
